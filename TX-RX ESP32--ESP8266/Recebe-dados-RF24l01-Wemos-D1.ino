@@ -28,12 +28,14 @@ uint8_t logIndex = 0;
 
 // ================= BUFFER PARA RECONSTRUIR CHUNKS =================
 // Se houver múltiplos chunks, guardamos e montamos a mensagem completa
-#define MAX_CHUNKS 10
+#define MAX_CHUNKS 20
+#define MAX_MESSAGE_SIZE 512 // Limite de tamanho total da mensagem
 String chunkBuffer[MAX_CHUNKS];
 uint8_t chunkAtual = 0;
 uint8_t totalChunks = 0;
 unsigned long ultimoChunkTime = 0;
 const unsigned long CHUNK_TIMEOUT = 1000; // 1 segundo para completar
+unsigned int tamMensagemAtual = 0; // Rastreia tamanho total
 
 // ================= OLED =================
 #define OLED_SDA 14         // D6
@@ -91,14 +93,23 @@ bool parseChunkHeader(const String &msg, uint8_t &i, uint8_t &N, String &conteud
   N = nStr.toInt();
   conteudo = msg.substring(espaco + 1);
   
-  return (i > 0 && i <= N && N <= MAX_CHUNKS);
+  // Validações rigorosas
+  if (i <= 0 || i > N || N <= 0 || N > MAX_CHUNKS) return false;
+  if (conteudo.length() > 32) return false; // Payload máximo
+  
+  return true;
 }
 
-// Monta a mensagem completa a partir dos chunks
+// Monta a mensagem completa a partir dos chunks (com limite de tamanho)
 String montarMensagemCompleta() {
   String result = "";
-  for (int i = 0; i < totalChunks; i++) {
-    result += chunkBuffer[i];
+  for (int i = 0; i < totalChunks && i < MAX_CHUNKS; i++) {
+    if (result.length() + chunkBuffer[i].length() <= MAX_MESSAGE_SIZE) {
+      result += chunkBuffer[i];
+    } else {
+      Serial.println("⚠️ Mensagem excedeu limite de tamanho");
+      break;
+    }
   }
   return result;
 }
@@ -120,21 +131,40 @@ String processarChunk(const String &payload) {
     }
     chunkAtual = 0;
     totalChunks = N;
+    tamMensagemAtual = 0;
   }
   
   ultimoChunkTime = millis();
   
-  // Guardar o chunk
-  if (i <= MAX_CHUNKS) {
+  // Guardar o chunk com validação rigorosa
+  if (i > 0 && i <= MAX_CHUNKS && i <= N) {
     chunkBuffer[i - 1] = conteudo;
+    tamMensagemAtual += conteudo.length();
+    
+    // Verificar se não excedeu limite
+    if (tamMensagemAtual > MAX_MESSAGE_SIZE) {
+      Serial.println("❌ Mensagem total excede 512 bytes! Descartando.");
+      for (int j = 0; j < MAX_CHUNKS; j++) {
+        chunkBuffer[j] = "";
+      }
+      chunkAtual = 0;
+      totalChunks = 0;
+      tamMensagemAtual = 0;
+      return "[ERRO: Mensagem grande demais]";
+    }
+    
     chunkAtual++;
+  } else {
+    Serial.println("❌ Índice de chunk inválido: " + String(i) + "/" + String(N));
+    return "[ERRO: Chunk inválido]";
   }
   
   // Se completou todos os chunks, montar e retornar
-  if (chunkAtual >= totalChunks) {
+  if (chunkAtual >= totalChunks && totalChunks > 0) {
     String mensagem = montarMensagemCompleta();
     chunkAtual = 0;
     totalChunks = 0;
+    tamMensagemAtual = 0;
     return mensagem;
   }
   
@@ -204,8 +234,8 @@ h2 { color: #fff; }
 </div>
 
 <script>
-// Recarrega a página a cada 2 segundos
-setTimeout(()=>location.reload(), 2000);
+// Recarrega a página a cada 3 minutos (180000 ms)
+setTimeout(()=>location.reload(), 180000);
 </script>
 
 </body>
