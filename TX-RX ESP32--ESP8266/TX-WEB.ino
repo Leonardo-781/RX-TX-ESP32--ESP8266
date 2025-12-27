@@ -76,7 +76,7 @@ void setup() {
     while(1);
   }
   
-  radio.setPALevel(RF24_PA_LOW);
+  radio.setPALevel(RF24_PA_MAX);
   radio.setDataRate(RF24_250KBPS);
   radio.setChannel(76);
   radio.setPayloadSize(32);
@@ -149,4 +149,5 @@ void loop() {
   
   server.handleClient();
   delay(3000);
+}
 }
